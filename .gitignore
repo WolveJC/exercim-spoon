@@ -1,3 +1,9 @@
+# Ignorar binarios y carpetas de compilación de C++
+build/
+*.o
+*.out
+.exercism/
+
 # Prerequisites
 *.d
 
@@ -34,7 +40,6 @@
 
 # Executables
 *.exe
-*.out
 *.app
 
 # debug information files
