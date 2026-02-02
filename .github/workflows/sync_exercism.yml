@@ -2,8 +2,8 @@ name: Sync Exercism Solutions
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *' # Se ejecuta cada medianoche
+  workflow_dispatch:      # Botón para ejecutar manualmente
 
 jobs:
   sync:
@@ -11,27 +11,43 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Asegura que traiga todo el historial para el push
 
-      # 1. Instalamos la herramienta oficial (CLI) de Exercism
       - name: Install Exercism CLI
         run: |
           wget https://github.com/exercism/cli/releases/download/v3.5.4/exercism-3.5.4-linux-x86_64.tar.gz
           tar -xf exercism-3.5.4-linux-x86_64.tar.gz
           sudo mv exercism /usr/local/bin/
 
-      # 2. Configuramos con tu token y descargamos
       - name: Sync Exercism
         env:
           EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
         run: |
-          exercism configure --token=$EXERCISM_TOKEN
-          exercism download
+          # Configuramos el workspace en el directorio actual para que Git vea los archivos
+          exercism configure --token=$EXERCISM_TOKEN --workspace=$(pwd)
+          
+          # Lista de tracks a sincronizar. 
+          # Añadir aquí los cursos (ej: python rust java go csharp javascript)
+          tracks="python javascript java csharp cpp rust go ruby"
+          
+          for track in $tracks; do
+            echo "Intentando descargar track: $track..."
+            exercism download --track=$track || echo "Track $track no encontrado o sin ejercicios."
+          done
 
-      # 3. Guardamos los cambios en tu repo de GitHub
       - name: Commit and Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Añade todos los archivos descargados
           git add .
-          git commit -m "Sincronización automática de Exercism" || exit 0
-          git push
+          
+          # Solo hace commit si hay cambios reales
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Sync: Nuevas soluciones de Exercism (Automático)"
+            git push
+          else
+            echo "No hay nuevos ejercicios para sincronizar."
+          fi
