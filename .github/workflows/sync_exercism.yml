@@ -3,7 +3,7 @@ name: Sincronizar Soluciones de Exercism
 on:
   schedule:
     - cron: '0 0 * * *' # Se ejecuta cada medianoche
-  workflow_dispatch:      # Permite ejecución manual
+  workflow_dispatch:      # Permite ejecución manual con un botón
 
 jobs:
   sync:
@@ -23,7 +23,7 @@ jobs:
           EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
         run: |
           exercism configure --token=$EXERCISM_TOKEN
-          # Esto descarga todas tus soluciones completadas
+          # Esto descarga tus soluciones
           exercism download
 
       - name: Confirmar y Subir Cambios (Push)
@@ -31,6 +31,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          # Solo hace commit si hay cambios nuevos
+          # Solo hace commit si detecta cambios nuevos
           git commit -m "Sync: Nuevas soluciones de Exercism" || echo "Sin cambios para confirmar"
           git push
