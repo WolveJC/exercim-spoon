@@ -1,19 +1,36 @@
-name: Sync Exercism Solutions
+name: Sincronizar Soluciones de Exercism
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Se ejecuta cada medianoche 
-  workflow_dispatch:      # Permite ejecutarlo con un botón
+    - cron: '0 0 * * *' # Se ejecuta cada medianoche
+  workflow_dispatch:      # Permite ejecución manual
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout del Repositorio
         uses: actions/checkout@v4
 
-      - name: Sync Exercism
-        uses: kofalt/exercism-sync@v2
-        with:
-          token: ${{ secrets.EXERCISM_TOKEN }}
-          # Esto descargará soluciones completadas
+      - name: Instalar Exercism CLI
+        run: |
+          wget https://github.com/exercism/cli/releases/download/v3.5.4/exercism-3.5.4-linux-x86_64.tar.gz
+          tar -xf exercism-3.5.4-linux-x86_64.tar.gz
+          sudo mv exercism /usr/local/bin/
+
+      - name: Configurar y Descargar Soluciones
+        env:
+          EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
+        run: |
+          exercism configure --token=$EXERCISM_TOKEN
+          # Esto descarga todas tus soluciones completadas
+          exercism download
+
+      - name: Confirmar y Subir Cambios (Push)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          # Solo hace commit si hay cambios nuevos
+          git commit -m "Sync: Nuevas soluciones de Exercism" || echo "Sin cambios para confirmar"
+          git push
