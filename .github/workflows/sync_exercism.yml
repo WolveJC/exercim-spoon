@@ -1,0 +1,19 @@
+name: Sync Exercism Solutions
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Se ejecuta cada medianoche 
+  workflow_dispatch:      # Permite ejecutarlo con un botón
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Sync Exercism
+        uses: kofalt/exercism-sync@v2
+        with:
+          token: ${{ secrets.EXERCISM_TOKEN }}
+          # Esto descargará soluciones completadas
