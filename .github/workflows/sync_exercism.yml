@@ -29,7 +29,7 @@ jobs:
           
           # Lista de tracks a sincronizar. 
           # Añadir aquí los cursos (ej: python rust java go csharp javascript)
-          tracks="python javascript java csharp cpp rust go ruby"
+          tracks="cpp"
           
           for track in $tracks; do
             echo "Intentando descargar track: $track..."
