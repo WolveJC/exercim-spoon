@@ -2,8 +2,11 @@ name: Sync Exercism Solutions
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Se ejecuta cada medianoche
-  workflow_dispatch:      # Botón para ejecutar manualmente
+    - cron: '0 0 * * *' # CI/CD Medianoche
+  workflow_dispatch:      # Ejecución manual
+
+permissions:
+  contents: write         # Escritura
 
 jobs:
   sync:
@@ -12,42 +15,40 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Asegura que traiga todo el historial para el push
+          fetch-depth: 0
 
       - name: Install Exercism CLI
         run: |
           wget https://github.com/exercism/cli/releases/download/v3.5.4/exercism-3.5.4-linux-x86_64.tar.gz
           tar -xf exercism-3.5.4-linux-x86_64.tar.gz
           sudo mv exercism /usr/local/bin/
+          # Limpieza inmediata de binarios descargados
+          rm exercism-3.5.4-linux-x86_64.tar.gz
+          rm -rf shell/
 
       - name: Sync Exercism
         env:
           EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
         run: |
-          # Configuramos el workspace en el directorio actual para que Git vea los archivos
+          # Configuración del entorno
           exercism configure --token=$EXERCISM_TOKEN --workspace=$(pwd)
           
-          # Lista de tracks a sincronizar. 
-          # Añadir aquí los cursos (ej: python rust java go csharp javascript)
-          tracks="cpp"
-          
-          for track in $tracks; do
-            echo "Intentando descargar track: $track..."
-            exercism download --track=$track || echo "Track $track no encontrado o sin ejercicios."
-          done
+          # Ejecución del script cerebral de sincronización
+          chmod +x sync_exercises.sh
+          ./sync_exercises.sh
 
       - name: Commit and Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Añade todos los archivos descargados
+          # Ignorar el binario de exercism si intentara colarse
           git add .
+          git reset -- exercism
           
-          # Solo hace commit si hay cambios reales
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "Sync: Nuevas soluciones de Exercism (Automático)"
-            git push
+            git commit -m "Sync: Nuevas soluciones detectadas vía API"
+            git push origin main
           else
-            echo "No hay nuevos ejercicios para sincronizar."
+            echo "El sistema ya está en equilibrio. No hay cambios."
           fi
