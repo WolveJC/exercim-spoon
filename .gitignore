@@ -1,8 +1,12 @@
-# Ignorar binarios y carpetas de compilación de C++
-build/
+# Ignorar binarios y comprimidos
+exercism
+*.tar.gz
+shell/
+
+# Ignorar archivos temporales de compilación (ej: C++)
 *.o
 *.out
-.exercism/
+build/
 
 # Prerequisites
 *.d
