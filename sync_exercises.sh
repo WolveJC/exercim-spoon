@@ -1,45 +1,38 @@
 #!/bin/bash
 
+# Extraemos el nombre de usuario de la captura: WolveJC
+USERNAME="WolveJC"
+
 if [ -z "$EXERCISM_TOKEN" ]; then
-    echo "Error: Deficiencia de señal (TOKEN no encontrado)."
+    echo "Error: Token ausente."
     exit 1
 fi
 
-echo "--- Iniciando sincronización cerebral de ejercicios ---"
+echo "--- Sincronización: Track C++ ---"
 
-# 1. Obtención de datos con cabeceras de aceptación JSON
-echo "Consultando soluciones en la API..."
-RESPONSE=$(curl -s -X GET \
-    -H "Authorization: Bearer $EXERCISM_TOKEN" \
-    -H "Accept: application/json" \
-    "https://api.exercism.org/v1/solutions")
+# 1. Consultar soluciones del usuario específico
+# Este endpoint suele ser más robusto que el general
+RESPONSE=$(curl -s -H "Authorization: Bearer $EXERCISM_TOKEN" \
+    "https://api.exercism.org/v1/solutions?user=$USERNAME&track_slug=cpp")
 
-# Debug: Verificar si la respuesta es válida antes de procesar
-if [ -z "$RESPONSE" ] || [ "$RESPONSE" == "null" ]; then
-    echo "Error: La API devolvió una respuesta vacía. Revisa el TOKEN."
-    exit 1
-fi
+# 2. Diagnóstico inmediato
+COUNT=$(echo "$RESPONSE" | jq '.results | length')
+echo "Ejercicios detectados en la API para $USERNAME: $COUNT"
 
-# 2. Extracción segura
-# Usamos -e para que jq devuelva un error si la estructura no es la esperada
-EXERCISES_TO_DOWNLOAD=$(echo "$RESPONSE" | jq -r '.results // [] | .[] | select(.status=="published" or .status=="completed") | "\(.track.slug):\(.exercise.slug)"' 2>/dev/null)
+# 3. Filtrado y descarga
+# Usamos select para asegurar que solo bajamos lo que ya pasó tests/completado
+EXERCISES=$(echo "$RESPONSE" | jq -r '.results[] | select(.status=="published" or .status=="completed") | .exercise.slug')
 
-if [ -z "$EXERCISES_TO_DOWNLOAD" ]; then
-    echo "No se detectaron ejercicios resueltos"
-    exit 0
-fi
-
-# 3. Iteración
-for entry in $EXERCISES_TO_DOWNLOAD; do
-    track=$(echo "$entry" | cut -d':' -f1)
-    exercise=$(echo "$entry" | cut -d':' -f2)
-
-    if [ ! -d "$track/$exercise" ]; then
-        echo "Sincronizando: [$track] $exercise..."
-        exercism download --track="$track" --exercise="$exercise"
+for exercise in $EXERCISES; do
+    if [ ! -d "cpp/$exercise" ]; then
+        echo "Extrayendo: $exercise..."
+        exercism download --track=cpp --exercise="$exercise"
     else
-        echo "Omitiendo: $exercise (ya en el sistema)."
+        echo "$exercise ya está en el repositorio."
     fi
 done
 
-echo "--- Sincronización finalizada ---"
+# 4. Limpieza de sistema
+find . -name "*.md" -type f -not -path "./README.md" -not -path "*/docs/*" -exec chmod 644 {} +
+
+echo "--- Proceso completado para $USERNAME ---"
