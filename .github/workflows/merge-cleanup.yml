@@ -1,0 +1,32 @@
+name: Scheduled PR Merge and Cleanup
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch: 
+
+jobs:
+  merge-and-cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Auto-merge Exercism PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_LIST=$(gh pr list --state open --json number --jq '.[].number')
+
+          if [ -z "$PR_LIST" ]; then
+            echo "No hay Pull Requests pendientes. Sistema en reposo."
+            exit 0
+          fi
+
+          for pr in $PR_LIST; do
+            echo "Analizando PR #$pr..."
+            gh pr merge $pr --squash --delete-branch --admin
+          done
