@@ -18,16 +18,13 @@ jobs:
         env:
           EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
         run: |
-          # Descarga e instalación del binario oficial
           curl -L https://github.com/exercism/cli/releases/download/v3.5.4/exercism-3.5.4-linux-x86_64.tar.gz -o exercism.tar.gz
           tar -xf exercism.tar.gz
           sudo mv exercism /usr/local/bin/
-          
-          # Configuración del entorno
           mkdir -p /home/runner/.config/exercism
           exercism configure --token=$EXERCISM_TOKEN
 
-      - name: Mass Enrich Exercises from Solutions
+      - name: Mass Enrich and Purge Config Files
         run: |
           BASE_DIR="solutions"
           
@@ -36,7 +33,11 @@ jobs:
             exit 1
           fi
 
-          # Iteración analítica de la estructura de archivos
+          # 1. Purga de archivos config.json preexistentes
+          echo "Buscando y eliminando residuos de config.json..."
+          find "$BASE_DIR" -name "config.json" -path "*/.exercism/*" -delete
+
+          # 2. Iteración y Sincronización
           for TRACK_PATH in $(find "$BASE_DIR" -maxdepth 1 -mindepth 1 -type d); do
             TRACK_NAME=$(basename "$TRACK_PATH")
             
@@ -45,16 +46,15 @@ jobs:
               
               echo "--- Sincronizando: $TRACK_NAME/$SLUG ---"
               
-              # Descarga del bundle completo desde la API v3
               exercism download --track=$TRACK_NAME --exercise=$SLUG || true
               
-              # Sincronización robusta:
-              # -r: Recursivo para incluir carpetas de tests/src
-              # -u: Update (solo copia si el archivo es nuevo o falta)
-              # Esto evita el error de 'omitting directory' y protege tu solución
               SOURCE_DIR="$HOME/exercism/$TRACK_NAME/$SLUG"
               if [ -d "$SOURCE_DIR" ]; then
+                # Copia recursiva y actualización
                 cp -ru "$SOURCE_DIR"/. "$BASE_DIR/$TRACK_NAME/$SLUG/" || true
+                
+                # Eliminación inmediata del nuevo config.json para que no se vuelva a subir
+                rm -f "$BASE_DIR/$TRACK_NAME/$SLUG/.exercism/config.json"
               fi
             done
           done
@@ -66,8 +66,8 @@ jobs:
           git add .
           
           if git diff --staged --quiet; then
-            echo " No hay archivos faltantes."
+            echo "Sistema limpio y completo."
           else
-            git commit -m "refactor: reconstrucción total (tests y docs obtenidos)"
+            git commit -m "refactor: Datos recuperados"
             git push origin main
           fi
