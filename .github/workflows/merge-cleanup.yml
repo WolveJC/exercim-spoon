@@ -2,7 +2,7 @@ name: Scheduled PR Merge and Cleanup
 
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '0 4 * * *' # 12:00 AM Hora Venezuela (UTC-4)
   workflow_dispatch: 
 
 jobs:
@@ -14,8 +14,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Auto-merge Exercism PRs
+      - name: Install and Configure Exercism CLI
+        env:
+          EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
+        run: |
+          # Instalación vía binario para evitar errores de Snap
+          curl -L https://github.com/exercism/cli/releases/download/v3.5.4/exercism-3.5.4-linux-x86_64.tar.gz -o exercism.tar.gz
+          tar -xf exercism.tar.gz
+          sudo mv exercism /usr/local/bin/
+          mkdir -p /home/runner/.config/exercism
+          exercism configure --token=$EXERCISM_TOKEN
+
+      - name: Auto-enrich and Merge Exercism PRs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -27,6 +40,48 @@ jobs:
           fi
 
           for pr in $PR_LIST; do
-            echo "Analizando PR #$pr..."
+            echo "--- Analizando PR #$pr ---"
+            
+            # 1. Identificación de rutas y nombres (solutions/track/slug)
+            PR_BRANCH=$(gh pr view $pr --json headRefName --jq '.headRefName')
+            SAMPLE_FILE=$(gh pr view $pr --json files --jq '.[0].path')
+            
+            # Siguiendo solutions/track/slug/...
+            TRACK=$(echo "$SAMPLE_FILE" | cut -d'/' -f2)
+            SLUG=$(echo "$SAMPLE_FILE" | cut -d'/' -f3)
+            BASE_PATH="solutions/$TRACK/$SLUG"
+
+            echo "Detección: Track [$TRACK] | Slug [$SLUG]"
+
+            # 2. Operación sobre la rama del PR
+            git fetch origin $PR_BRANCH
+            git checkout $PR_BRANCH
+
+            # 3. Descarga de técnica
+            exercism download --track=$TRACK --exercise=$SLUG || true
+            
+            # 4. Sincronización recursiva y limpieza
+            SOURCE_DIR="$HOME/exercism/$TRACK/$SLUG"
+            if [ -d "$SOURCE_DIR" ]; then
+              # cp -ru: recursivo y solo archivos nuevos
+              cp -ru "$SOURCE_DIR"/. "./$BASE_PATH/" || true
+              # Purga del archivo innecesario
+              rm -f "./$BASE_PATH/.exercism/config.json"
+            fi
+
+            # 5. Consolidación de cambios en la rama
+            git config user.name "Automator"
+            git config user.email "actions@github.com"
+            git add .
+            
+            if git commit -m "chore: Tests y docs obtenidos para $SLUG"; then
+              git push origin $PR_BRANCH
+            else
+              echo "No hay cambios que inyectar."
+            fi
+
+            # 6. Merge Final y Limpieza de rama
             gh pr merge $pr --squash --delete-branch --admin
+            
+            git checkout main
           done
