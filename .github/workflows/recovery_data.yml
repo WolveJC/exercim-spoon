@@ -1,71 +1,29 @@
-name: Manual History Repair
-
-on:
-  workflow_dispatch: 
-
-jobs:
-  repair:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install and Configure Exercism CLI
-        env:
-          EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
-        run: |
-          # Descarga del binario oficial para Linux 64-bit
-          curl -L https://github.com/exercism/cli/releases/download/v3.5.4/exercism-3.5.4-linux-x86_64.tar.gz -o exercism.tar.gz
-          tar -xf exercism.tar.gz
-          sudo mv exercism /usr/local/bin/
-          
-          # Creación manual del path de config para evitar "Permission Denied"
-          mkdir -p /home/runner/.config/exercism
-          exercism configure --token=$EXERCISM_TOKEN
-
       - name: Mass Enrich Exercises from Solutions
         run: |
           BASE_DIR="solutions"
           
           if [ ! -d "$BASE_DIR" ]; then
-            echo "Error: Carpeta $BASE_DIR no encontrada en la raíz."
+            echo "Error: Carpeta $BASE_DIR no encontrada."
             exit 1
           fi
 
-          # 1. Iterar sobre los Tracks (ej. solutions/python)
           for TRACK_PATH in $(find "$BASE_DIR" -maxdepth 1 -mindepth 1 -type d); do
             TRACK_NAME=$(basename "$TRACK_PATH")
             
-            # 2. Iterar sobre los Slugs (ej. solutions/python/lasagna)
             for EXERCISE_PATH in $(find "$TRACK_PATH" -maxdepth 1 -mindepth 1 -type d); do
               SLUG=$(basename "$EXERCISE_PATH")
               
               echo "--- Recuperando biomasa de: $TRACK_NAME/$SLUG ---"
               
-              # 3. Descarga vía API v3. Se añade || true para que no rompa si un ejercicio ya no existe
+              # Descarga silenciosa
               exercism download --track=$TRACK_NAME --exercise=$SLUG || true
               
-              # 4. Sincronización: Copiamos README, tests y metadatos sin pisar tu código (-n)
-              # El origen por defecto de la CLI es ~/exercism/
+              # Sincronización robusta:
+              # -r: recursivo (para carpetas /test o /src)
+              # -u: update (solo copia si el origen es más nuevo o el destino no existe)
+              # Usamos '|| true' para que el script no muera si hay un aviso de permisos
               if [ -d "$HOME/exercism/$TRACK_NAME/$SLUG" ]; then
-                cp -vn $HOME/exercism/$TRACK_NAME/$SLUG/* "$BASE_DIR/$TRACK_NAME/$SLUG/"
+                cp -ru $HOME/exercism/$TRACK_NAME/$SLUG/* "$BASE_DIR/$TRACK_NAME/$SLUG/" || true
               fi
             done
           done
-
-      - name: Commit and Push Changes
-        run: |
-          git config user.name "History Repair"
-          git config user.email "actions@github.com"
-          git add .
-          # Solo hace commit si hay cambios reales para evitar errores en el push
-          if git diff --staged --quiet; then
-            echo "No se encontraron archivos faltantes. Sistema en homeostasis."
-          else
-            git commit -m "refactor: reconstrucción histórica de tests y docs en solutions/"
-            git push origin main
-          fi
