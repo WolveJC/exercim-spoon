@@ -1,0 +1,57 @@
+name: Manual History Repair (Solutions Folder)
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Exercism CLI
+        env:
+          EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
+        run: |
+          sudo snap install exercism
+          exercism configure --token=$EXERCISM_TOKEN
+
+      - name: Mass Enrich Exercises from Solutions
+        run: |
+          # Definimos la base
+          BASE_DIR="solutions"
+          
+          if [ ! -d "$BASE_DIR" ]; then
+            echo "Error: Carpeta $BASE_DIR no encontrada."
+            exit 1
+          fi
+
+          # 1. Iterar sobre los Tracks (python, javascript, etc.)
+          for TRACK_PATH in $(find "$BASE_DIR" -maxdepth 1 -mindepth 1 -type d); do
+            TRACK_NAME=$(basename "$TRACK_PATH")
+            
+            # 2. Iterar sobre los Slugs (ejercicios)
+            for EXERCISE_PATH in $(find "$TRACK_PATH" -maxdepth 1 -mindepth 1 -type d); do
+              SLUG=$(basename "$EXERCISE_PATH")
+              
+              echo "--- Analizando: $TRACK_NAME/$SLUG ---"
+              
+              # 3. Descarga mediante API v3
+              exercism download --track=$TRACK_NAME --exercise=$SLUG
+              
+              # 4. Sincronización selectiva
+              # El destino es solutions/track/slug/
+              cp -vn ~/exercism/$TRACK_NAME/$SLUG/* "$BASE_DIR/$TRACK_NAME/$SLUG/"
+            done
+          done
+
+      - name: Commit and Push
+        run: |
+          git config user.name "History Repair"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "refactor: reconstrucción de datos" || echo "Sistema al día"
+          git push origin main
