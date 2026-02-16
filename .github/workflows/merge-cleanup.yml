@@ -2,7 +2,8 @@ name: Scheduled PR Merge and Cleanup
 
 on:
   schedule:
-    - cron: '0 4 * * *' # 12:00 AM Hora Venezuela (UTC-4)
+    # 12:15 AM Hora Venezuela (UTC-4). 
+    - cron: '15 4 * * *' 
   workflow_dispatch: 
 
 jobs:
@@ -21,7 +22,6 @@ jobs:
         env:
           EXERCISM_TOKEN: ${{ secrets.EXERCISM_TOKEN }}
         run: |
-          # Instalación vía binario para evitar errores de Snap
           curl -L https://github.com/exercism/cli/releases/download/v3.5.4/exercism-3.5.4-linux-x86_64.tar.gz -o exercism.tar.gz
           tar -xf exercism.tar.gz
           sudo mv exercism /usr/local/bin/
@@ -32,6 +32,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # 1. Obtener lista de PRs abiertos
           PR_LIST=$(gh pr list --state open --json number --jq '.[].number')
 
           if [ -z "$PR_LIST" ]; then
@@ -39,49 +40,57 @@ jobs:
             exit 0
           fi
 
+          # Configuración global de Git para el bot
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
           for pr in $PR_LIST; do
-            echo "--- Analizando PR #$pr ---"
+            echo "--- Procesando PR #$pr ---"
             
-            # 1. Identificación de rutas y nombres (solutions/track/slug)
-            PR_BRANCH=$(gh pr view $pr --json headRefName --jq '.headRefName')
+            # Asegurar que empezamos desde main limpio en cada iteración
+            git checkout main
+            git pull origin main
+
+            # 2. Checkout de la rama del PR
+            if ! gh pr checkout $pr; then
+              echo "Error: No se pudo acceder al PR #$pr. Saltando..."
+              continue
+            fi
+
+            # 3. Identificación de rutas (solutions/track/slug)
             SAMPLE_FILE=$(gh pr view $pr --json files --jq '.[0].path')
-            
-            # Siguiendo solutions/track/slug/...
             TRACK=$(echo "$SAMPLE_FILE" | cut -d'/' -f2)
             SLUG=$(echo "$SAMPLE_FILE" | cut -d'/' -f3)
             BASE_PATH="solutions/$TRACK/$SLUG"
 
-            echo "Detección: Track [$TRACK] | Slug [$SLUG]"
+            echo "Detección: [$TRACK] -> [$SLUG]"
 
-            # 2. Operación sobre la rama del PR
-            git fetch origin $PR_BRANCH
-            git checkout $PR_BRANCH
+            # 4. Descarga de técnica y Enriquecimiento
+            # Solo procesar al merge si la descarga es exitosa
+            if exercism download --track=$TRACK --exercise=$SLUG; then
+              SOURCE_DIR="$HOME/exercism/$TRACK/$SLUG"
+              
+              if [ -d "$SOURCE_DIR" ]; then
+                cp -ru "$SOURCE_DIR"/. "./$BASE_PATH/"
+                rm -f "./$BASE_PATH/.exercism/config.json"
 
-            # 3. Descarga de técnica
-            exercism download --track=$TRACK --exercise=$SLUG || true
-            
-            # 4. Sincronización recursiva y limpieza
-            SOURCE_DIR="$HOME/exercism/$TRACK/$SLUG"
-            if [ -d "$SOURCE_DIR" ]; then
-              # cp -ru: recursivo y solo archivos nuevos
-              cp -ru "$SOURCE_DIR"/. "./$BASE_PATH/" || true
-              # Purga del archivo innecesario
-              rm -f "./$BASE_PATH/.exercism/config.json"
-            fi
+                # 5. Intentar commit y push
+                git add .
+                if git commit -m "chore: inyectando tests y docs para $SLUG"; then
+                  git push origin HEAD
+                  echo "Cambios inyectados exitosamente."
+                else
+                  echo "No hubo cambios nuevos que añadir."
+                fi
 
-            # 5. Consolidación de cambios en la rama
-            git config user.name "Automator"
-            git config user.email "actions@github.com"
-            git add .
-            
-            if git commit -m "chore: Tests y docs obtenidos para $SLUG"; then
-              git push origin $PR_BRANCH
+                # 6. Merge Final
+                gh pr merge $pr --squash --delete-branch --admin
+                echo "PR #$pr mergeado y cerrado."
+              fi
             else
-              echo "No hay cambios que inyectar."
+              echo "Error al descargar de Exercism. Se mantiene #$pr abierto para revisión."
             fi
-
-            # 6. Merge Final y Limpieza de rama
-            gh pr merge $pr --squash --delete-branch --admin
-            
-            git checkout main
           done
+
+          # Regresar a main al finalizar
+          git checkout main
