@@ -44,32 +44,35 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           for pr in $PR_LIST; do
-            echo "--- Procesando PR #$pr ---"
+            echo "::group::Procesando PR #$pr"
             
-            # Asegurar que empezamos desde main limpio en cada iteración
+            # Asegurar base limpia
             git checkout main
             git pull origin main
 
             # 2. Checkout de la rama del PR
             if ! gh pr checkout $pr; then
-              echo "Error: No se pudo acceder al PR #$pr. Saltando..."
+              echo "::error:: No se pudo acceder al PR #$pr. Saltando..."
+              echo "::endgroup::"
               continue
             fi
 
             # 3. Identificación de rutas (solutions/track/slug)
             SAMPLE_FILE=$(gh pr view $pr --json files --jq '.files[0].path')
+            
             if [ -z "$SAMPLE_FILE" ] || [ "$SAMPLE_FILE" == "null" ]; then
-              echo "Error: No se pudieron detectar archivos en el PR #$pr. Saltando..."
+              echo "::warning:: No se detectaron archivos en PR #$pr. Saltando..."
+              echo "::endgroup::"
               continue
             fi
+
             TRACK=$(echo "$SAMPLE_FILE" | cut -d'/' -f2)
             SLUG=$(echo "$SAMPLE_FILE" | cut -d'/' -f3)
             BASE_PATH="solutions/$TRACK/$SLUG"
 
-            echo "Detección: [$TRACK] -> [$SLUG]"
+            echo "Detección: Track [$TRACK] -> Slug [$SLUG]"
 
-            # 4. Descarga de técnica y Enriquecimiento
-            # Solo procesar al merge si la descarga es exitosa
+            # 4. Descarga y Enriquecimiento
             if exercism download --track=$TRACK --exercise=$SLUG; then
               SOURCE_DIR="$HOME/exercism/$TRACK/$SLUG"
               
@@ -78,22 +81,27 @@ jobs:
                 cp -ru "$SOURCE_DIR"/. "./$BASE_PATH/"
                 rm -f "./$BASE_PATH/.exercism/config.json"
 
-                # 5. Intentar commit y push
+                # 5. Commit y Push a la rama del PR
                 git add .
                 if git commit -m "chore: inyectando tests y docs para $SLUG"; then
                   git push origin HEAD
-                  echo "Cambios inyectados exitosamente."
+                  echo "Cambios inyectados. Esperando por validación"
+                  sleep 15
                 else
                   echo "No hubo cambios nuevos que añadir."
                 fi
 
                 # 6. Merge Final
-                gh pr merge $pr --squash --delete-branch --admin
-                echo "PR #$pr mergeado y cerrado."
+                if gh pr merge $pr --squash --delete-branch --admin; then
+                  echo "PR #$pr mergeado y cerrado con éxito."
+                else
+                  echo "::error:: PR #$pr no es mergeable en este momento. Se mantiene abierto."
+                fi
               fi
             else
-              echo "Error al descargar de Exercism. Se mantiene #$pr abierto para revisión."
+              echo "::error:: Falló la descarga de Exercism para $SLUG."
             fi
+            echo "::endgroup::"
           done
 
           # Regresar a main al finalizar
