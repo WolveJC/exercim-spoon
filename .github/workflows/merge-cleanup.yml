@@ -31,22 +31,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Obtener lista de PRs abiertos
-          PR_LIST=$(gh pr list --state open --json number --jq '.[].number')
+          # 1. Obtener lista de PRs e invertirla para procesar de más antiguo a más reciente
+          PR_LIST=$(gh pr list --state open --json number --jq '.[].number | @text' | tac)
 
           if [ -z "$PR_LIST" ]; then
             echo "No hay Pull Requests pendientes. Sistema en reposo."
             exit 0
           fi
 
-          # Configuración global de Git para el bot
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           for pr in $PR_LIST; do
             echo "::group::Procesando PR #$pr"
             
-            # Asegurar base limpia
             git checkout main
             git pull origin main
 
@@ -72,30 +70,35 @@ jobs:
 
             echo "Detección: Track [$TRACK] -> Slug [$SLUG]"
 
-            # 4. Descarga y Enriquecimiento
+            # 4. Limpieza de entorno temporal
+            rm -rf "$HOME/exercism/$TRACK/$SLUG"
+            
+            # Descarga estándar (sin --force)
             if exercism download --track=$TRACK --exercise=$SLUG; then
               SOURCE_DIR="$HOME/exercism/$TRACK/$SLUG"
               
               if [ -d "$SOURCE_DIR" ]; then
                 mkdir -p "./$BASE_PATH/"
+                
+                # Sincronización por Integridad:
                 cp -ru "$SOURCE_DIR"/. "./$BASE_PATH/"
                 rm -f "./$BASE_PATH/.exercism/config.json"
 
-                # 5. Commit y Push a la rama del PR
+                # 5. Commit y Push
                 git add .
-                if git commit -m "chore: inyectando tests y docs para $SLUG"; then
+                if git commit -m "chore: enriquecimiento de biomasa para $SLUG (PR #$pr)"; then
                   git push origin HEAD
-                  echo "Cambios inyectados. Esperando por validación"
+                  echo "Cambios inyectados. Esperando validación de GitHub..."
                   sleep 15
                 else
-                  echo "No hubo cambios nuevos que añadir."
+                  echo "No hay cambios nuevos"
                 fi
 
                 # 6. Merge Final
                 if gh pr merge $pr --squash --delete-branch --admin; then
-                  echo "PR #$pr mergeado y cerrado con éxito."
+                  echo "PR #$pr mergeado con éxito."
                 else
-                  echo "::error:: PR #$pr no es mergeable en este momento. Se mantiene abierto."
+                  echo "::error:: PR #$pr no mergeable tras inyección."
                 fi
               fi
             else
@@ -104,5 +107,4 @@ jobs:
             echo "::endgroup::"
           done
 
-          # Regresar a main al finalizar
           git checkout main
